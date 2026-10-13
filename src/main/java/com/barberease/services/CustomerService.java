@@ -20,9 +20,18 @@ public class CustomerService {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private WalletService walletService;
+
     public Customer getProfile(Long customerId) {
-        return customerRepository.findById(customerId)
+        Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new IllegalArgumentException("Customer not found"));
+        BigDecimal walletBal = walletService.getBalance(customerId);
+        if (walletBal != null && (customer.getWalletBalance() == null || !customer.getWalletBalance().equals(walletBal))) {
+            customer.setWalletBalance(walletBal);
+            customer = customerRepository.save(customer);
+        }
+        return customer;
     }
 
     public Customer updateProfile(Long customerId, Customer data) {
@@ -58,13 +67,7 @@ public class CustomerService {
     }
 
     public Customer topUpWallet(Long customerId, BigDecimal amount) {
-        Customer customer = getProfile(customerId);
-
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Please provide a valid top up amount greater than zero.");
-        }
-
-        customer.setWalletBalance(customer.getWalletBalance().add(amount));
-        return customerRepository.save(customer);
+        walletService.rechargeWallet(customerId, amount);
+        return getProfile(customerId);
     }
 }

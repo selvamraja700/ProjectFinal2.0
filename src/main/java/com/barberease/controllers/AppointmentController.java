@@ -24,6 +24,9 @@ public class AppointmentController {
     @Autowired
     private AppointmentService appointmentService;
 
+    @Autowired
+    private com.barberease.services.WalletService walletService;
+
     private Long getAuthenticatedCustomerId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !(auth.getPrincipal() instanceof UserPrincipal)) {
@@ -74,6 +77,7 @@ public class AppointmentController {
         body.put("success", true);
         body.put("message", "Appointment confirmed");
         body.put("data", created);
+        body.put("wallet_balance", walletService.getBalance(customerId));
         return new ResponseEntity<>(body, HttpStatus.CREATED);
     }
 
@@ -186,6 +190,7 @@ public class AppointmentController {
         body.put("success", true);
         body.put("message", "Time slot " + timeSlot + " booked successfully!");
         body.put("data", booked);
+        body.put("wallet_balance", walletService.getBalance(customerId));
         return new ResponseEntity<>(body, HttpStatus.CREATED);
     }
 

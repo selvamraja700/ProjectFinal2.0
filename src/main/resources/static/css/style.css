@@ -2293,6 +2293,56 @@ html, body {
   gap: 4px;
 }
 
+/* ══════════════════════════════════════════════════════════
+   TOP-RIGHT PROFILE & WALLET COMPACT POPUPS
+   ══════════════════════════════════════════════════════════ */
+.top-corner-popup {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 1060;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 12px 30px -4px rgba(15, 23, 42, 0.15), 0 4px 6px -2px rgba(15, 23, 42, 0.05);
+  animation: topPopupSlideIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top right;
+}
+
+@keyframes topPopupSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.top-corner-btn {
+  transition: all 0.15s ease;
+  font-weight: 600;
+}
+.top-corner-btn:hover {
+  transform: translateY(-1px);
+}
+.top-corner-btn:active {
+  transform: translateY(0);
+}
+
+@media (max-width: 576px) {
+  .top-corner-popup {
+    position: fixed;
+    top: 58px;
+    right: 8px;
+    left: 8px;
+    width: auto !important;
+    max-width: none !important;
+  }
+}
+
+
 
 
 

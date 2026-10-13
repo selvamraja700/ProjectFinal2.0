@@ -9,8 +9,10 @@ let selectedChair = null;
 let reservationTimer = null;
 let reservationSeconds = 300; // 5 minutes
 
-// Socket.IO Init
 let socket = null;
+let currentWalletBalance = 0;
+let authenticatedProfile = null;
+let pendingBookingData = null;
 
 function showToast(message, type = 'danger') {
   const container = document.getElementById('toast-container');
@@ -580,6 +582,11 @@ function openSlotBookingModal(timeSlot) {
   let dateBadge = selectedDate === todayStr ? 'Today' : selectedDate;
   document.getElementById('slot-modal-display-date').textContent = dateBadge;
 
+  // Update current wallet balance in modal
+  const slotBalEl = document.getElementById('slot-modal-wallet-balance');
+  if (slotBalEl) slotBalEl.textContent = `₹${currentWalletBalance.toFixed(2)}`;
+  if (typeof fetchWalletBalance === 'function') fetchWalletBalance();
+
   // Populate services dropdown
   const srvSelect = document.getElementById('slot-service-select');
   if (srvSelect && services.length > 0) {
@@ -642,10 +649,21 @@ async function handleConfirmSlotBooking(event) {
 
   const timeSlot = document.getElementById('slot-modal-time').value;
   const appointmentDate = document.getElementById('slot-modal-date').value;
-  const serviceId = document.getElementById('slot-service-select').value;
+  const srvSelect = document.getElementById('slot-service-select');
+  const serviceId = srvSelect ? srvSelect.value : 1;
+  const opt = srvSelect ? srvSelect.options[srvSelect.selectedIndex] : null;
+  const price = opt ? parseFloat(opt.getAttribute('data-price') || '0') : 0;
   const notesEl = document.getElementById('slot-notes');
   const notes = notesEl ? notesEl.value : '';
-  const paymentMethod = document.getElementById('slot-payment-method').value;
+
+  // Preserve booking details for retry after recharge
+  pendingBookingData = {
+    serviceId: serviceId,
+    timeSlot: timeSlot,
+    appointmentDate: appointmentDate,
+    notes: notes,
+    price: price
+  };
 
   const submitBtn = document.getElementById('btn-submit-slot-booking');
   submitBtn.disabled = true;
@@ -663,11 +681,34 @@ async function handleConfirmSlotBooking(event) {
         appointment_date: appointmentDate,
         service_id: serviceId,
         notes: notes,
-        payment_method: paymentMethod
+        payment_method: 'wallet'
       })
     });
 
     const data = await res.json();
+
+    if (res.status === 402 || data.insufficient_balance || (data.message && data.message.includes('Insufficient'))) {
+      // Close slot modal
+      const slotModalEl = document.getElementById('slotBookingModal');
+      const slotModal = slotModalEl ? bootstrap.Modal.getInstance(slotModalEl) : null;
+      if (slotModal) slotModal.hide();
+
+      // Show insufficient balance modal
+      const reqAmt = data.required_amount != null ? parseFloat(data.required_amount) : price;
+      const curBal = data.current_balance != null ? parseFloat(data.current_balance) : currentWalletBalance;
+
+      const reqEl = document.getElementById('insufficient-required-amt');
+      const curEl = document.getElementById('insufficient-current-amt');
+      if (reqEl) reqEl.textContent = `₹${reqAmt.toFixed(2)}`;
+      if (curEl) curEl.textContent = `₹${curBal.toFixed(2)}`;
+
+      const insuffModalEl = document.getElementById('insufficientWalletModal');
+      if (insuffModalEl) {
+        const insuffModal = bootstrap.Modal.getInstance(insuffModalEl) || new bootstrap.Modal(insuffModalEl);
+        insuffModal.show();
+      }
+      return;
+    }
 
     if (!res.ok) {
       throw new Error(data.message || 'Double booking collision: This slot was just booked.');
@@ -676,8 +717,19 @@ async function handleConfirmSlotBooking(event) {
     const modal = bootstrap.Modal.getInstance(document.getElementById('slotBookingModal'));
     if (modal) modal.hide();
 
+    // Clear pending booking data on success
+    pendingBookingData = null;
+
+    // Immediately update balance without reload
+    if (data.wallet_balance !== undefined) {
+      currentWalletBalance = parseFloat(data.wallet_balance);
+      updateAllWalletDisplays(currentWalletBalance);
+    } else {
+      fetchWalletBalance();
+    }
+
     const assignedSeat = data.data?.chair ? `Seat ${data.data.chair.chair_number}` : 'Waiting Queue';
-    showToast(`🎉 Booked ${timeSlot}! Assigned to ${assignedSeat}.`, 'success');
+    showToast(`🎉 Booked ${timeSlot}! Assigned to ${assignedSeat}. ₹${price.toFixed(2)} paid from wallet.`, 'success');
 
     // Refresh all 3 panels immediately
     fetchChairs();
@@ -687,7 +739,6 @@ async function handleConfirmSlotBooking(event) {
 
   } catch (err) {
     showToast(err.message, 'danger');
-    // Refresh slots so user immediately sees conflicting status
     fetchTimeSlots(selectedDate);
   } finally {
     submitBtn.disabled = false;
@@ -1281,8 +1332,33 @@ async function confirmBooking(event) {
 
     const data = await res.json();
 
+    if (res.status === 402 || data.insufficient_balance || (data.message && data.message.includes('Insufficient'))) {
+      const modal = bootstrap.Modal.getInstance(document.getElementById('bookingModal'));
+      if (modal) modal.hide();
+
+      const reqEl = document.getElementById('insufficient-required-amt');
+      const curEl = document.getElementById('insufficient-current-amt');
+      if (reqEl) reqEl.textContent = data.required_amount != null ? `₹${parseFloat(data.required_amount).toFixed(2)}` : '₹0.00';
+      if (curEl) curEl.textContent = data.current_balance != null ? `₹${parseFloat(data.current_balance).toFixed(2)}` : `₹${currentWalletBalance.toFixed(2)}`;
+
+      const insuffModalEl = document.getElementById('insufficientWalletModal');
+      if (insuffModalEl) {
+        const insuffModal = bootstrap.Modal.getInstance(insuffModalEl) || new bootstrap.Modal(insuffModalEl);
+        insuffModal.show();
+      }
+      return;
+    }
+
     if (!res.ok) {
       throw new Error(data.message || 'Failed to confirm appointment.');
+    }
+
+    // Immediately update balance without reload
+    if (data.wallet_balance !== undefined) {
+      currentWalletBalance = parseFloat(data.wallet_balance);
+      updateAllWalletDisplays(currentWalletBalance);
+    } else {
+      fetchWalletBalance();
     }
 
     showToast(`🎉 Booking Confirmed! \u20B9${parseFloat(data.data.service.price).toFixed(2)} has been paid from your wallet.`, 'success');
@@ -1514,6 +1590,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (welcomeEl) welcomeEl.textContent = user.name || 'Customer';
     const roleEl = document.getElementById('user-role-badge');
     if (roleEl) roleEl.textContent = (user.role || user.type || 'Customer').toUpperCase();
+    const btnNameEl = document.getElementById('top-profile-btn-name');
+    if (btnNameEl) btnNameEl.textContent = user.name || 'Profile';
   }
 
   // Ensure date input default matches selectedDate
@@ -1523,17 +1601,23 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   fetchServices();
+  fetchProfileDetails();
+  fetchWalletBalance();
   scheduleRefresh(0);
   setupSockets();
 
-  // Gentle 30-second background sync to keep time slots rolled over as hours pass
+  // Background sync every 30 seconds
   setInterval(() => {
     scheduleRefresh(0);
   }, 30000);
 });
 
-// Fetch wallet balance
-async function fetchWalletBalance() {
+// ══════════════════════════════════════════════════════════
+// TOP-RIGHT PROFILE & WALLET FULL-STACK MANAGEMENT
+// ══════════════════════════════════════════════════════════
+
+// Fetch authenticated customer profile details
+async function fetchProfileDetails() {
   const token = localStorage.getItem('barber_token');
   if (!token) return;
 
@@ -1542,50 +1626,261 @@ async function fetchWalletBalance() {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     const data = await res.json();
-    if (res.ok) {
-      document.getElementById('customer-wallet-balance').textContent = parseFloat(data.data.wallet_balance).toFixed(2);
+    if (res.ok && data.data) {
+      authenticatedProfile = data.data;
+      const name = authenticatedProfile.name || 'Customer';
+      const email = authenticatedProfile.email || 'Not provided';
+      const mobile = authenticatedProfile.phone || authenticatedProfile.mobile || 'Not provided';
+
+      const welcomeEl = document.getElementById('cust-welcome-name');
+      if (welcomeEl) welcomeEl.textContent = name;
+
+      const btnNameEl = document.getElementById('top-profile-btn-name');
+      if (btnNameEl) btnNameEl.textContent = name;
+
+      const profileNameEl = document.getElementById('top-profile-name');
+      if (profileNameEl) profileNameEl.textContent = name;
+
+      const profileEmailEl = document.getElementById('top-profile-email');
+      if (profileEmailEl) profileEmailEl.textContent = email;
+
+      const profileMobileEl = document.getElementById('top-profile-mobile');
+      if (profileMobileEl) profileMobileEl.textContent = mobile;
+
+      if (authenticatedProfile.wallet_balance != null) {
+        currentWalletBalance = parseFloat(authenticatedProfile.wallet_balance);
+        updateAllWalletDisplays(currentWalletBalance);
+      }
     }
   } catch (err) {
-    console.error('Error fetching wallet balance:', err);
+    console.error('Error fetching profile:', err);
   }
 }
+window.fetchProfileDetails = fetchProfileDetails;
 
-// Open Top Up Modal
-function openTopUpModal() {
-  document.getElementById('topup-amount').value = '20';
-  const modal = new bootstrap.Modal(document.getElementById('topupModal'));
-  modal.show();
-}
-
-// Confirm Top Up
-async function confirmTopUp(event) {
-  event.preventDefault();
+// Fetch current wallet balance
+async function fetchWalletBalance() {
   const token = localStorage.getItem('barber_token');
   if (!token) return;
 
-  const amount = document.getElementById('topup-amount').value;
+  try {
+    const res = await fetch('/api/wallet/balance', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+    if (res.ok && data.balance !== undefined) {
+      currentWalletBalance = parseFloat(data.balance);
+      updateAllWalletDisplays(currentWalletBalance);
+    } else {
+      fetchProfileDetails();
+    }
+  } catch (err) {
+    fetchProfileDetails();
+  }
+}
+window.fetchWalletBalance = fetchWalletBalance;
+
+// Synchronize all wallet displays in DOM
+function updateAllWalletDisplays(balance) {
+  const num = parseFloat(balance || 0);
+  const formatted = `₹${num.toFixed(2)}`;
+
+  const topDisplay = document.getElementById('top-wallet-balance-display');
+  if (topDisplay) topDisplay.textContent = formatted;
+
+  const popupDisplay = document.getElementById('top-wallet-popup-balance');
+  if (popupDisplay) popupDisplay.textContent = formatted;
+
+  const slotModalBal = document.getElementById('slot-modal-wallet-balance');
+  if (slotModalBal) slotModalBal.textContent = formatted;
+
+  const custBal = document.getElementById('customer-wallet-balance');
+  if (custBal) custBal.textContent = num.toFixed(2);
+}
+window.updateAllWalletDisplays = updateAllWalletDisplays;
+
+// Toggle Wallet dropdown popup
+function toggleTopWalletPanel(event, forceOpen = false) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  closeTopProfilePanel();
+
+  const panel = document.getElementById('top-wallet-panel');
+  if (!panel) return;
+
+  const isDisplayed = panel.style.display === 'block';
+  if (isDisplayed && !forceOpen) {
+    panel.style.display = 'none';
+  } else {
+    panel.style.display = 'block';
+    const feedback = document.getElementById('top-wallet-feedback');
+    if (feedback) feedback.style.display = 'none';
+    fetchWalletBalance();
+    const input = document.getElementById('top-wallet-amount-input');
+    if (input) input.focus();
+  }
+}
+window.toggleTopWalletPanel = toggleTopWalletPanel;
+
+function closeTopWalletPanel() {
+  const panel = document.getElementById('top-wallet-panel');
+  if (panel) panel.style.display = 'none';
+}
+window.closeTopWalletPanel = closeTopWalletPanel;
+
+// Toggle Profile dropdown popup
+function toggleTopProfilePanel(event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  closeTopWalletPanel();
+
+  const panel = document.getElementById('top-profile-panel');
+  if (!panel) return;
+
+  const isDisplayed = panel.style.display === 'block';
+  if (isDisplayed) {
+    panel.style.display = 'none';
+  } else {
+    panel.style.display = 'block';
+    fetchProfileDetails();
+  }
+}
+window.toggleTopProfilePanel = toggleTopProfilePanel;
+
+function closeTopProfilePanel() {
+  const panel = document.getElementById('top-profile-panel');
+  if (panel) panel.style.display = 'none';
+}
+window.closeTopProfilePanel = closeTopProfilePanel;
+
+// Quick amount pill selection
+function setQuickRechargeAmount(amount) {
+  const input = document.getElementById('top-wallet-amount-input');
+  if (input) {
+    input.value = amount;
+    input.focus();
+  }
+}
+window.setQuickRechargeAmount = setQuickRechargeAmount;
+
+// Execute top-right wallet recharge
+async function executeTopWalletRecharge(event) {
+  event.preventDefault();
+  const token = localStorage.getItem('barber_token');
+  if (!token) {
+    showToast('Please log in to recharge your wallet.', 'danger');
+    return;
+  }
+
+  const input = document.getElementById('top-wallet-amount-input');
+  const feedback = document.getElementById('top-wallet-feedback');
+  const submitBtn = document.getElementById('top-wallet-recharge-btn');
+
+  const valStr = input ? input.value.trim() : '';
+  const amount = parseFloat(valStr);
+
+  if (isNaN(amount) || valStr === '') {
+    showFeedback('Please enter a valid numeric recharge amount.', 'danger');
+    return;
+  }
+  if (amount < 100) {
+    showFeedback('Minimum recharge amount is ₹100.', 'danger');
+    return;
+  }
+  if (amount > 2000) {
+    showFeedback('Maximum recharge amount is ₹2,000 per transaction.', 'danger');
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Processing…`;
 
   try {
-    const res = await fetch('/api/customers/profile/wallet', {
-      method: 'PUT',
+    const res = await fetch('/api/wallet/recharge', {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ amount })
+      body: JSON.stringify({ amount: amount })
     });
 
     const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to top up wallet.');
+    if (!res.ok) {
+      throw new Error(data.message || 'Recharge failed.');
+    }
 
-    showToast(data.message, 'success');
-    
-    const modal = bootstrap.Modal.getInstance(document.getElementById('topupModal'));
-    if (modal) modal.hide();
+    currentWalletBalance = parseFloat(data.balance);
+    updateAllWalletDisplays(currentWalletBalance);
+    showFeedback(`✓ Recharged ₹${amount.toFixed(2)} successfully! Balance: ₹${currentWalletBalance.toFixed(2)}`, 'success');
+    showToast(`✓ Wallet recharged with ₹${amount.toFixed(2)}!`, 'success');
 
-    fetchWalletBalance();
+    if (input) input.value = '';
+
+    // If there was a pending booking due to insufficient funds, reopen slot modal
+    if (pendingBookingData) {
+      setTimeout(() => {
+        const slotModalEl = document.getElementById('slotBookingModal');
+        if (slotModalEl) {
+          const slotModal = bootstrap.Modal.getInstance(slotModalEl) || new bootstrap.Modal(slotModalEl);
+          slotModal.show();
+          showToast(`Now you have ₹${currentWalletBalance.toFixed(2)}. You can confirm your booking!`, 'info');
+        }
+      }, 700);
+    }
 
   } catch (err) {
-    showToast(err.message, 'danger');
+    showFeedback(err.message, 'danger');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = `<i class="fa-solid fa-plus-circle me-1"></i> Recharge Wallet`;
+  }
+
+  function showFeedback(msg, type) {
+    if (!feedback) return;
+    feedback.className = `small mt-2 p-1.5 rounded text-center alert alert-${type === 'danger' ? 'danger' : 'success'} py-1 px-2`;
+    feedback.textContent = msg;
+    feedback.style.display = 'block';
   }
 }
+window.executeTopWalletRecharge = executeTopWalletRecharge;
+
+// Redirect from Insufficient Wallet Balance modal to top-right Wallet panel
+function handleInsufficientRechargeRedirect() {
+  const modalEl = document.getElementById('insufficientWalletModal');
+  if (modalEl) {
+    const modal = bootstrap.Modal.getInstance(modalEl);
+    if (modal) modal.hide();
+  }
+
+  // Open top-right wallet panel
+  toggleTopWalletPanel(null, true);
+
+  // Pre-calculate suggested recharge
+  if (pendingBookingData && pendingBookingData.price) {
+    const diff = Math.max(100, Math.ceil(pendingBookingData.price - currentWalletBalance));
+    const suggested = Math.min(2000, Math.max(100, diff));
+    const amtInput = document.getElementById('top-wallet-amount-input');
+    if (amtInput) {
+      amtInput.value = suggested;
+      amtInput.focus();
+    }
+  }
+}
+window.handleInsufficientRechargeRedirect = handleInsufficientRechargeRedirect;
+
+// Close popups on click outside
+document.addEventListener('click', (event) => {
+  const walletWrapper = document.getElementById('top-wallet-dropdown-wrapper');
+  if (walletWrapper && !walletWrapper.contains(event.target)) {
+    closeTopWalletPanel();
+  }
+  const profileWrapper = document.getElementById('top-profile-dropdown-wrapper');
+  if (profileWrapper && !profileWrapper.contains(event.target)) {
+    closeTopProfilePanel();
+  }
+});

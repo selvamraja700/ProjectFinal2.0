@@ -11,6 +11,17 @@ import java.util.Map;
 @ControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(InsufficientWalletBalanceException.class)
+    public ResponseEntity<Map<String, Object>> handleInsufficientWalletBalance(InsufficientWalletBalanceException ex) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("success", false);
+        body.put("insufficient_balance", true);
+        body.put("message", ex.getMessage());
+        body.put("required_amount", ex.getRequiredAmount());
+        body.put("current_balance", ex.getCurrentBalance());
+        return new ResponseEntity<>(body, HttpStatus.PAYMENT_REQUIRED);
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
         Map<String, Object> body = new HashMap<>();

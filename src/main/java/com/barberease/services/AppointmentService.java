@@ -44,6 +44,9 @@ public class AppointmentService {
     @Autowired
     private BarberWebSocketHandler webSocketHandler;
 
+    @Autowired
+    private WalletService walletService;
+
     public synchronized String generateTokenNumber(LocalDate date) {
         Optional<Token> lastToken = tokenRepository.findFirstByTokenDateOrderByIdDesc(date);
         int nextNumber = 1;
@@ -75,20 +78,6 @@ public class AppointmentService {
 
         Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new IllegalArgumentException("Customer not found"));
-
-        BigDecimal price = service.getPrice();
-        boolean isWalletPayment = paymentMethod == null || "redeem".equals(paymentMethod);
-
-        if (isWalletPayment) {
-            BigDecimal balance = customer.getWalletBalance();
-            if (balance.compareTo(price) < 0) {
-                throw new IllegalStateException(String.format(
-                        "Insufficient wallet balance. Service costs $%.2f but your wallet has $%.2f. Please top up!",
-                        price, balance));
-            }
-            customer.setWalletBalance(balance.subtract(price));
-            customerRepository.save(customer);
-        }
 
         Chair chair = chairRepository.findById(chairId)
                 .orElseThrow(() -> new IllegalArgumentException("Chair not found. Please select a valid chair."));
@@ -134,6 +123,10 @@ public class AppointmentService {
         }
 
         String tokenNumber = generateTokenNumber(appointmentDate);
+
+        // Service booking is wallet-only: debit wallet atomically
+        BigDecimal price = service.getPrice() != null ? service.getPrice() : BigDecimal.ZERO;
+        walletService.debitForBooking(customerId, price, tokenNumber, "Payment for booking " + tokenNumber + " (" + service.getName() + ")");
 
         Appointment appointment = new Appointment();
         appointment.setCustomer(customer);
@@ -833,8 +826,10 @@ public class AppointmentService {
             // 2. If 2 <= existing < 6: Main seats are full -> Goes to Waiting Chairs (Chairs 3, 4, 5, 6)
             // 3. If existing >= 6: Waiting seats are full -> Goes to Waiting List!
             if (existingForSlot.size() >= 6) {
+                BigDecimal price = service.getPrice() != null ? service.getPrice() : BigDecimal.ZERO;
                 Queue queued = queueService.addToQueue(customerId, service.getId(), null, timeSlot, date.toString());
                 String tokenNumber = queued.getTokenNumber();
+                walletService.debitForBooking(customerId, price, tokenNumber, "Waiting list booking for " + service.getName() + " (" + tokenNumber + ")");
                 Appointment saved = appointmentRepository.findByTokenNumber(tokenNumber).stream().findFirst().orElse(null);
                 if (saved == null) {
                     Appointment queueAppt = new Appointment();
@@ -855,17 +850,10 @@ public class AppointmentService {
                 return saved;
             }
 
-            boolean isWalletPayment = "wallet".equalsIgnoreCase(paymentMethod) || "redeem".equalsIgnoreCase(paymentMethod);
-            if (isWalletPayment) {
-                BigDecimal price = service.getPrice() != null ? service.getPrice() : BigDecimal.ZERO;
-                BigDecimal balance = customer.getWalletBalance() != null ? customer.getWalletBalance() : BigDecimal.ZERO;
-                if (balance.compareTo(price) < 0) {
-                    throw new IllegalStateException(String.format(
-                            "Insufficient wallet balance. Service costs $%.2f but your wallet has $%.2f.", price, balance));
-                }
-                customer.setWalletBalance(balance.subtract(price));
-                customerRepository.save(customer);
-            }
+            BigDecimal price = service.getPrice() != null ? service.getPrice() : BigDecimal.ZERO;
+            String tokenNumber = generateTokenNumber(date);
+            // Service booking is wallet-only: debit wallet atomically
+            walletService.debitForBooking(customerId, price, tokenNumber, "Payment for booking " + tokenNumber + " (" + service.getName() + ")");
 
             Set<Integer> takenChairs = new HashSet<>();
             for (Appointment a : existingForSlot) {
@@ -905,8 +893,6 @@ public class AppointmentService {
                 assignedSeat.setReservedAt(LocalDateTime.now());
                 chairRepository.save(assignedSeat);
             }
-
-            String tokenNumber = generateTokenNumber(date);
 
             int startMin = parseTimeToMinutes(timeSlot);
             int dur = (service != null && service.getDurationMinutes() > 0) ? service.getDurationMinutes() : 30;
