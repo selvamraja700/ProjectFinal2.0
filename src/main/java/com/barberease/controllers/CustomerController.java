@@ -100,10 +100,21 @@ public class CustomerController {
             }
         }
 
-        Customer customer = customerService.topUpWallet(customerId, amount);
+        Object couponObj = request.get("coupon_code");
+        if (couponObj == null) {
+            couponObj = request.get("couponCode");
+        }
+        if (couponObj == null) {
+            couponObj = request.get("coupon");
+        }
+        String couponCode = couponObj != null ? couponObj.toString() : null;
+
+        Customer customer = customerService.topUpWallet(customerId, amount, couponCode);
 
         Map<String, Object> body = new HashMap<>();
         body.put("success", true);
+        body.put("title", "Wallet Recharge Successful!");
+        body.put("message", "₹" + amount.setScale(2, java.math.RoundingMode.HALF_UP) + " has been added to your wallet successfully.");
         body.put("data", customer);
         return ResponseEntity.ok(body);
     }

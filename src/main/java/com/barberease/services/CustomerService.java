@@ -66,8 +66,12 @@ public class CustomerService {
         return customerRepository.save(customer);
     }
 
-    public Customer topUpWallet(Long customerId, BigDecimal amount) {
-        walletService.rechargeWallet(customerId, amount);
+    public Customer topUpWallet(Long customerId, BigDecimal amount, String couponCode) {
+        walletService.rechargeWallet(customerId, amount, couponCode);
         return getProfile(customerId);
+    }
+
+    public Customer topUpWallet(Long customerId, BigDecimal amount) {
+        return topUpWallet(customerId, amount, null);
     }
 }

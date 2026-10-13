@@ -351,16 +351,25 @@
                   <div class="mb-2">
                     <label for="top-wallet-amount-input" class="form-label small fw-semibold text-secondary mb-1" style="font-size: 0.75rem;">Recharge Amount (₹)</label>
                     <div class="input-group input-group-sm">
-                      <span class="input-group-text bg-white border-end-0">₹</span>
-                      <input type="number" class="form-control border-start-0" id="top-wallet-amount-input" placeholder="Enter ₹100 - ₹2,000" min="100" max="2000" step="1" required>
+                      <span class="input-group-text bg-white border-end-0 fw-bold">₹</span>
+                      <input type="number" class="form-control border-start-0 fw-bold text-dark" id="top-wallet-amount-input" placeholder="Enter amount (max ₹2,000)" min="1" max="2000" step="1" required>
                     </div>
                   </div>
 
+                  <!-- Quick amount pills -->
                   <div class="d-flex gap-1.5 mb-2.5 justify-content-between">
                     <button type="button" class="btn btn-xs btn-outline-secondary py-0.5 px-2 rounded-pill" style="font-size:0.7rem;" onclick="setQuickRechargeAmount(100)">+₹100</button>
-                    <button type="button" class="btn btn-xs btn-outline-secondary py-0.5 px-2 rounded-pill" style="font-size:0.7rem;" onclick="setQuickRechargeAmount(250)">+₹250</button>
                     <button type="button" class="btn btn-xs btn-outline-secondary py-0.5 px-2 rounded-pill" style="font-size:0.7rem;" onclick="setQuickRechargeAmount(500)">+₹500</button>
                     <button type="button" class="btn btn-xs btn-outline-secondary py-0.5 px-2 rounded-pill" style="font-size:0.7rem;" onclick="setQuickRechargeAmount(1000)">+₹1000</button>
+                    <button type="button" class="btn btn-xs btn-outline-secondary py-0.5 px-2 rounded-pill" style="font-size:0.7rem;" onclick="setQuickRechargeAmount(2000)">₹2000</button>
+                  </div>
+
+                  <div class="mb-3">
+                    <label for="top-wallet-coupon-input" class="form-label small fw-semibold text-secondary mb-1" style="font-size: 0.75rem;">Coupon Code</label>
+                    <div class="input-group input-group-sm">
+                      <span class="input-group-text bg-white"><i class="fa-solid fa-tag text-secondary"></i></span>
+                      <input type="text" class="form-control" id="top-wallet-coupon-input" placeholder="Enter coupon code (e.g. BARBER50)" autocomplete="off" required>
+                    </div>
                   </div>
 
                   <button type="submit" class="btn btn-sm btn-success w-100 py-1.5 fw-semibold d-flex align-items-center justify-content-center gap-1.5" id="top-wallet-recharge-btn">
@@ -371,7 +380,7 @@
                   <div id="top-wallet-feedback" class="small mt-2" style="font-size: 0.72rem; display: none;"></div>
 
                   <div class="text-muted mt-2 text-center" style="font-size: 0.68rem; line-height: 1.2;">
-                    Minimum recharge: ₹100 | Maximum recharge: ₹2,000 per transaction.
+                    Recharge amount: up to ₹2,000 per transaction.
                   </div>
                 </form>
               </div>

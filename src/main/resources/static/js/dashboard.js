@@ -1718,8 +1718,8 @@ function toggleTopWalletPanel(event, forceOpen = false) {
     const feedback = document.getElementById('top-wallet-feedback');
     if (feedback) feedback.style.display = 'none';
     fetchWalletBalance();
-    const input = document.getElementById('top-wallet-amount-input');
-    if (input) input.focus();
+    const amountInput = document.getElementById('top-wallet-amount-input');
+    if (amountInput) amountInput.focus();
   }
 }
 window.toggleTopWalletPanel = toggleTopWalletPanel;
@@ -1757,45 +1757,88 @@ function closeTopProfilePanel() {
 }
 window.closeTopProfilePanel = closeTopProfilePanel;
 
-// Quick amount pill selection
 function setQuickRechargeAmount(amount) {
-  const input = document.getElementById('top-wallet-amount-input');
-  if (input) {
-    input.value = amount;
-    input.focus();
+  const amountInput = document.getElementById('top-wallet-amount-input');
+  if (amountInput) {
+    amountInput.value = amount;
   }
+  const couponInput = document.getElementById('top-wallet-coupon-input');
+  if (couponInput) couponInput.focus();
 }
 window.setQuickRechargeAmount = setQuickRechargeAmount;
 
-// Execute top-right wallet recharge
+// Guard against duplicate concurrent recharge requests
+let isWalletRecharging = false;
+
+// Execute top-right wallet recharge with user entered amount (up to ₹2,000) and BARBER50 / BARBER 50 coupon
 async function executeTopWalletRecharge(event) {
-  event.preventDefault();
+  if (event) {
+    event.preventDefault();
+  }
+
+  if (isWalletRecharging) {
+    return;
+  }
+
   const token = localStorage.getItem('barber_token');
   if (!token) {
     showToast('Please log in to recharge your wallet.', 'danger');
     return;
   }
 
-  const input = document.getElementById('top-wallet-amount-input');
   const feedback = document.getElementById('top-wallet-feedback');
   const submitBtn = document.getElementById('top-wallet-recharge-btn');
+  const couponInput = document.getElementById('top-wallet-coupon-input');
+  const amountInput = document.getElementById('top-wallet-amount-input');
 
-  const valStr = input ? input.value.trim() : '';
+  const couponCode = couponInput ? couponInput.value.trim() : '';
+  const valStr = amountInput ? amountInput.value.trim() : '';
   const amount = parseFloat(valStr);
 
-  if (isNaN(amount) || valStr === '') {
-    showFeedback('Please enter a valid numeric recharge amount.', 'danger');
-    return;
+  function showFeedback(title, msg, type) {
+    if (!feedback) return;
+    feedback.className = `small mt-2 p-2 rounded text-center alert alert-${type === 'danger' ? 'danger' : 'success'} py-1.5 px-2`;
+    let html = '';
+    if (title) {
+      html += `<div class="fw-bold mb-0.5">${title}</div>`;
+    }
+    if (msg) {
+      html += `<div>${msg}</div>`;
+    }
+    feedback.innerHTML = html;
+    feedback.style.display = 'block';
   }
-  if (amount < 100) {
-    showFeedback('Minimum recharge amount is ₹100.', 'danger');
-    return;
-  }
-  if (amount > 2000) {
-    showFeedback('Maximum recharge amount is ₹2,000 per transaction.', 'danger');
+
+  // Validate amount:
+  if (isNaN(amount) || valStr === '' || amount <= 0) {
+    showFeedback('Invalid Amount', 'Please enter a valid recharge amount greater than ₹0.', 'danger');
     return;
   }
 
+  if (amount > 2000) {
+    showFeedback('Invalid Amount', 'Maximum recharge amount is ₹2,000. Please enter a valid amount up to ₹2,000.', 'danger');
+    return;
+  }
+
+  const newTotal = (currentWalletBalance || 0) + amount;
+  if (newTotal > 2000) {
+    const maxAllowed = Math.max(0, 2000 - (currentWalletBalance || 0));
+    if (maxAllowed <= 0) {
+      showFeedback('Invalid Amount', 'Your wallet balance is already at the maximum limit of ₹2,000.', 'danger');
+    } else {
+      showFeedback('Invalid Amount', `Total wallet balance cannot exceed ₹2,000. Maximum valid amount to enter is ₹${maxAllowed.toFixed(2)}.`, 'danger');
+    }
+    return;
+  }
+
+  // Validate coupon code: supports BARBER50 and BARBER 50 (case-insensitive)
+  const normCoupon = couponCode.replace(/\s+/g, ' ').toUpperCase();
+  if (!normCoupon || (normCoupon !== 'BARBER 50' && normCoupon !== 'BARBER50')) {
+    showFeedback('Invalid Coupon Code', 'Please enter the correct coupon code to recharge your wallet.', 'danger');
+    return;
+  }
+
+  isWalletRecharging = true;
   submitBtn.disabled = true;
   submitBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Processing…`;
 
@@ -1806,20 +1849,34 @@ async function executeTopWalletRecharge(event) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ amount: amount })
+      body: JSON.stringify({
+        amount: amount,
+        coupon_code: couponCode
+      })
     });
 
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.message || 'Recharge failed.');
+      let errTitle = 'Invalid Amount';
+      let errMsg = data.message || 'Please enter a valid amount.';
+      if (data.message && data.message.includes('Coupon Code')) {
+        errTitle = 'Invalid Coupon Code';
+        errMsg = 'Please enter the correct coupon code to recharge your wallet.';
+      } else if (data.message && data.message.includes('Invalid Amount')) {
+        errTitle = 'Invalid Amount';
+        errMsg = data.message.replace('Invalid Amount: ', '');
+      }
+      showFeedback(errTitle, errMsg, 'danger');
+      return;
     }
 
     currentWalletBalance = parseFloat(data.balance);
     updateAllWalletDisplays(currentWalletBalance);
-    showFeedback(`✓ Recharged ₹${amount.toFixed(2)} successfully! Balance: ₹${currentWalletBalance.toFixed(2)}`, 'success');
-    showToast(`✓ Wallet recharged with ₹${amount.toFixed(2)}!`, 'success');
+    showFeedback('Wallet Recharge Successful!', `₹${amount.toFixed(2)} has been added to your wallet successfully.`, 'success');
+    showToast(`✓ ₹${amount.toFixed(2)} has been added to your wallet successfully.`, 'success');
 
-    if (input) input.value = '';
+    if (amountInput) amountInput.value = '';
+    if (couponInput) couponInput.value = '';
 
     // If there was a pending booking due to insufficient funds, reopen slot modal
     if (pendingBookingData) {
@@ -1834,17 +1891,11 @@ async function executeTopWalletRecharge(event) {
     }
 
   } catch (err) {
-    showFeedback(err.message, 'danger');
+    showFeedback('Error', err.message || 'Failed to recharge wallet.', 'danger');
   } finally {
+    isWalletRecharging = false;
     submitBtn.disabled = false;
     submitBtn.innerHTML = `<i class="fa-solid fa-plus-circle me-1"></i> Recharge Wallet`;
-  }
-
-  function showFeedback(msg, type) {
-    if (!feedback) return;
-    feedback.className = `small mt-2 p-1.5 rounded text-center alert alert-${type === 'danger' ? 'danger' : 'success'} py-1 px-2`;
-    feedback.textContent = msg;
-    feedback.style.display = 'block';
   }
 }
 window.executeTopWalletRecharge = executeTopWalletRecharge;
@@ -1860,15 +1911,17 @@ function handleInsufficientRechargeRedirect() {
   // Open top-right wallet panel
   toggleTopWalletPanel(null, true);
 
-  // Pre-calculate suggested recharge
   if (pendingBookingData && pendingBookingData.price) {
-    const diff = Math.max(100, Math.ceil(pendingBookingData.price - currentWalletBalance));
-    const suggested = Math.min(2000, Math.max(100, diff));
-    const amtInput = document.getElementById('top-wallet-amount-input');
-    if (amtInput) {
-      amtInput.value = suggested;
-      amtInput.focus();
+    const needed = Math.max(1, Math.min(2000, Math.ceil(pendingBookingData.price - (currentWalletBalance || 0))));
+    const amountInput = document.getElementById('top-wallet-amount-input');
+    if (amountInput) {
+      amountInput.value = needed;
     }
+  }
+
+  const couponInput = document.getElementById('top-wallet-coupon-input');
+  if (couponInput) {
+    couponInput.focus();
   }
 }
 window.handleInsufficientRechargeRedirect = handleInsufficientRechargeRedirect;

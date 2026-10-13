@@ -19,7 +19,7 @@ public class Wallet {
     private Customer customer;
 
     @Column(nullable = false, precision = 10, scale = 2)
-    private BigDecimal balance = new BigDecimal("100.00");
+    private BigDecimal balance = BigDecimal.ZERO;
 
     @Version
     private Long version;
@@ -33,7 +33,7 @@ public class Wallet {
     @PrePersist
     protected void onCreate() {
         if (balance == null) {
-            balance = new BigDecimal("100.00");
+            balance = BigDecimal.ZERO;
         }
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
@@ -49,7 +49,7 @@ public class Wallet {
 
     public Wallet(Customer customer, BigDecimal balance) {
         this.customer = customer;
-        this.balance = balance != null ? balance : new BigDecimal("100.00");
+        this.balance = balance != null ? balance : BigDecimal.ZERO;
     }
 
     public Long getId() {

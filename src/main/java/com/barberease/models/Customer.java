@@ -39,7 +39,7 @@ public class Customer {
     private LocalDateTime lastLogin;
 
     @Column(name = "wallet_balance", nullable = false, precision = 10, scale = 2)
-    private BigDecimal walletBalance = new BigDecimal("100.00");
+    private BigDecimal walletBalance = BigDecimal.ZERO;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

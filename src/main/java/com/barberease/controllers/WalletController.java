@@ -67,11 +67,21 @@ public class WalletController {
             throw new IllegalArgumentException("Please enter a valid numeric recharge amount.");
         }
 
-        Wallet wallet = walletService.rechargeWallet(customerId, amount);
+        Object couponObj = request.get("coupon_code");
+        if (couponObj == null) {
+            couponObj = request.get("couponCode");
+        }
+        if (couponObj == null) {
+            couponObj = request.get("coupon");
+        }
+        String couponCode = couponObj != null ? couponObj.toString() : null;
+
+        Wallet wallet = walletService.rechargeWallet(customerId, amount, couponCode);
 
         Map<String, Object> body = new HashMap<>();
         body.put("success", true);
-        body.put("message", "Wallet recharged successfully with ₹" + amount);
+        body.put("title", "Wallet Recharge Successful!");
+        body.put("message", "₹" + amount.setScale(2, java.math.RoundingMode.HALF_UP) + " has been added to your wallet successfully.");
         body.put("balance", wallet.getBalance());
         return ResponseEntity.ok(body);
     }
