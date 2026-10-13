@@ -64,7 +64,7 @@ Make sure MySQL is running and configure `src/main/resources/application.propert
 ```properties
 spring.datasource.url=jdbc:mysql://localhost:3306/barberease_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
 spring.datasource.username=root
-spring.datasource.password=NewPassword123
+spring.datasource.password=raj@123
 ```
 
 ### 2. Default Seeded Admin Credentials

@@ -2032,7 +2032,7 @@ html, body {
   padding: 1rem;
   margin-bottom: 0.85rem;
   background: #ffffff;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
 }
 .seat-card-compact.available {
   border-color: #10b981;
@@ -2239,25 +2239,37 @@ html, body {
   color: #ffffff;
   font-weight: 700;
   font-size: 0.82rem;
-  padding: 0.45rem 0.85rem;
+  padding: 0.5rem 0.85rem;
   border-radius: 6px;
-  transition: all 0.2s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   width: 100%;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
 }
 .admin-finish-btn:hover:not(:disabled) {
   background: #b91c1c;
+  border-color: #991b1b;
   color: #ffffff;
-  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.3);
+  box-shadow: 0 3px 8px rgba(220, 38, 38, 0.35);
+}
+.admin-finish-btn:active:not(:disabled) {
+  transform: scale(0.97);
+  background: #991b1b;
+  box-shadow: 0 1px 3px rgba(153, 27, 27, 0.4);
 }
 .admin-finish-btn:disabled {
   background: #f1f5f9;
   border-color: #cbd5e1;
   color: #94a3b8;
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
 
 .slot-customers-box {

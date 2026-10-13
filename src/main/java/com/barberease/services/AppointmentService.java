@@ -1044,6 +1044,13 @@ public class AppointmentService {
     @org.springframework.transaction.annotation.Transactional
     public void autoPromoteIfMainSeatsAvailable(LocalDate targetDate) {
         LocalDate date = targetDate != null ? targetDate : LocalDate.now();
+        Chair main1 = chairRepository.findByChairNumber(1).orElse(null);
+        Chair main2 = chairRepository.findByChairNumber(2).orElse(null);
+        boolean hasAvailMain = (main1 != null && "available".equalsIgnoreCase(main1.getStatus())) ||
+                              (main2 != null && "available".equalsIgnoreCase(main2.getStatus()));
+        if (!hasAvailMain) {
+            return;
+        }
         rotateAndPromoteWaitingChairs(null, date, null);
     }
 
@@ -1097,6 +1104,7 @@ public class AppointmentService {
             LocalDateTime now = LocalDateTime.now();
             LocalDate date = targetDate != null ? targetDate : LocalDate.now();
             LocalDateTime startOfDay = date.atStartOfDay();
+            boolean stateChanged = (freedMainChairId != null);
 
             List<Chair> waitingChairs = chairRepository.findByChairTypeAndIsActiveTrueOrderByChairNumberAsc("waiting");
             waitingChairs.removeIf(c -> c.getChairNumber() < 3 || c.getChairNumber() > 6);
@@ -1306,6 +1314,7 @@ public class AppointmentService {
 
                 if (candidateIdx >= 0) {
                     WaitingPerson promoted = waitingLine.remove(candidateIdx);
+                    stateChanged = true;
 
                     mc.setStatus("occupied");
                     mc.setReservedByCustomer(promoted.customer);
@@ -1430,13 +1439,15 @@ public class AppointmentService {
                 }
             }
 
-            if (queueService != null) {
-                queueService.recalculatePositions();
+            if (stateChanged) {
+                if (queueService != null) {
+                    queueService.recalculatePositions();
+                }
+                webSocketHandler.broadcast("slot-update");
+                webSocketHandler.broadcast("chair-update");
+                webSocketHandler.broadcast("queue-update");
+                webSocketHandler.broadcast("appointment-update");
             }
-            webSocketHandler.broadcast("slot-update");
-            webSocketHandler.broadcast("chair-update");
-            webSocketHandler.broadcast("queue-update");
-            webSocketHandler.broadcast("appointment-update");
         }
     }
 

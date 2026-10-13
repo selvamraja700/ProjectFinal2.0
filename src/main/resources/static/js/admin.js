@@ -8,6 +8,10 @@ let selectedAdminDate = new Date().toISOString().split('T')[0];
 let pendingFinishChairId = null;
 let pendingFinishSeatName = '';
 let pendingFinishCustomerName = '';
+let isFinishingService = false;
+let lastSeatsRenderSignature = '';
+let lastSlotsRenderSignature = '';
+let lastQueueRenderSignature = '';
 let pollTimer = null;
 
 // Show Admin Toast Notification (No icons)
@@ -92,8 +96,12 @@ async function fetchAdminSeats(date) {
   } catch (err) {
     console.error('Error fetching admin seats:', err);
     container.innerHTML = `
-      <div class="alert alert-danger p-2 small">
-        Failed to load seats.
+      <div class="alert alert-danger p-2 small shadow-sm">
+        <div class="fw-semibold mb-1"><i class="fa-solid fa-triangle-exclamation me-1"></i> Failed to load seats.</div>
+        <div class="text-muted small mb-2" style="font-size:0.75rem;">${err.message || 'Error communicating with server.'}</div>
+        <button type="button" class="btn btn-sm btn-outline-danger px-2 py-0" style="font-size:0.75rem" onclick="lastSeatsRenderSignature=''; fetchAdminSeats();">
+          <i class="fa-solid fa-rotate-right me-1"></i> Retry
+        </button>
       </div>
     `;
   }
@@ -102,6 +110,20 @@ async function fetchAdminSeats(date) {
 function renderAdminSeats(chairs) {
   const container = document.getElementById('admin-seats-container');
   if (!container) return;
+
+  // Do not re-render DOM while completing a service or while confirmation modal is active
+  if (isFinishingService) return;
+
+  // Build a unique signature of the chairs data
+  const currentSignature = (chairs || []).map(c => 
+    `${c.chair_number}:${c.status}:${c.customer_name || ''}:${c.time || ''}:${c.token_number || ''}`
+  ).join('|');
+
+  // If data is identical and container already has elements, skip completely to prevent flicker
+  if (currentSignature === lastSeatsRenderSignature && container.children.length > 0) {
+    return;
+  }
+  lastSeatsRenderSignature = currentSignature;
 
   let seat1 = chairs.find(c => c.chair_number === 1) || { chair_number: 1, name: 'Seat 1', status: 'available', customer_name: '---', time: '---' };
   let seat2 = chairs.find(c => c.chair_number === 2) || { chair_number: 2, name: 'Seat 2', status: 'available', customer_name: '---', time: '---' };
@@ -141,13 +163,13 @@ function renderAdminSeats(chairs) {
 
     const finishBtn = isOccupied
       ? `
-        <button class="admin-finish-btn mt-3" onclick="promptFinishService(${seat.id || seat.chair_number}, 'Seat ${seat.chair_number}', '${escapeQuotes(seat.customer_name)}')">
-          Finish Service
+        <button type="button" class="admin-finish-btn mt-3" onclick="promptFinishService(${seat.id || seat.chair_number}, 'Seat ${seat.chair_number}', '${escapeQuotes(seat.customer_name)}')">
+          <i class="fa-solid fa-circle-check me-1"></i> Finish Service
         </button>
       `
       : `
-        <button class="admin-finish-btn mt-3" disabled style="opacity:0.65;">
-          Available
+        <button type="button" class="admin-finish-btn mt-3" disabled style="opacity:0.65;">
+          <i class="fa-regular fa-circle me-1"></i> Available
         </button>
       `;
 
@@ -230,26 +252,38 @@ function escapeQuotes(str) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function promptFinishService(chairId, seatName, customerName) {
+  if (isFinishingService) return;
   pendingFinishChairId = chairId;
   pendingFinishSeatName = seatName;
   pendingFinishCustomerName = customerName;
 
-  document.getElementById('finish-customer-name').textContent = customerName || 'Current Customer';
-  document.getElementById('finish-seat-name').textContent = seatName;
+  const custNameEl = document.getElementById('finish-customer-name');
+  const seatNameEl = document.getElementById('finish-seat-name');
+  if (custNameEl) custNameEl.textContent = customerName || 'Current Customer';
+  if (seatNameEl) seatNameEl.textContent = seatName;
 
   const modalEl = document.getElementById('finishServiceModal');
-  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-  modal.show();
+  if (modalEl) {
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modal.show();
+  }
 }
 
 async function executeFinishService() {
-  if (!pendingFinishChairId) return;
+  if (!pendingFinishChairId || isFinishingService) return;
+  isFinishingService = true;
 
   const btn = document.getElementById('btn-confirm-finish');
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Finishing…';
   }
+
+  // Disable seat finish buttons for instant feedback
+  document.querySelectorAll('.admin-finish-btn').forEach(b => {
+    b.disabled = true;
+    b.style.pointerEvents = 'none';
+  });
 
   const token = localStorage.getItem('barber_token');
 
@@ -269,20 +303,32 @@ async function executeFinishService() {
       throw new Error(json.message || 'Failed to complete service');
     }
 
-    // Close modal
+    // Close modal cleanly
     const modalEl = document.getElementById('finishServiceModal');
-    const modal = bootstrap.Modal.getInstance(modalEl);
-    if (modal) modal.hide();
+    if (modalEl) {
+      const modal = bootstrap.Modal.getInstance(modalEl);
+      if (modal) modal.hide();
+    }
 
     showAdminToast(`Service finished for ${pendingFinishSeatName}. Queue updated!`, 'success');
 
-    // Refresh all panels immediately
+    // Invalidate signatures so immediate re-render reflects changes cleanly
+    lastSeatsRenderSignature = '';
+    lastSlotsRenderSignature = '';
+    lastQueueRenderSignature = '';
     refreshAllAdminPanels();
 
   } catch (err) {
     console.error('Error completing service:', err);
     showAdminToast(err.message || 'Error completing service', 'danger');
+    // Restore button interactivity on error
+    document.querySelectorAll('.admin-finish-btn').forEach(b => {
+      b.disabled = false;
+      b.style.pointerEvents = 'auto';
+    });
   } finally {
+    isFinishingService = false;
+    pendingFinishChairId = null;
     if (btn) {
       btn.disabled = false;
       btn.innerHTML = 'Complete Service';
@@ -314,6 +360,9 @@ function selectAdminDateFilter(period) {
   const dateInput = document.getElementById('admin-slot-picker-date');
   if (dateInput) dateInput.value = selectedAdminDate;
 
+  lastSeatsRenderSignature = '';
+  lastSlotsRenderSignature = '';
+  lastQueueRenderSignature = '';
   fetchAdminSeats(selectedAdminDate);
   fetchAdminSlots();
 }
@@ -322,6 +371,9 @@ function onAdminDateChanged(val) {
   if (!val) return;
   selectedAdminDate = val;
   document.querySelectorAll('.slot-date-btn').forEach(b => b.classList.remove('active'));
+  lastSeatsRenderSignature = '';
+  lastSlotsRenderSignature = '';
+  lastQueueRenderSignature = '';
   fetchAdminSeats(selectedAdminDate);
   fetchAdminSlots();
 }
@@ -370,6 +422,12 @@ async function fetchAdminSlots() {
 function renderAdminSlots(slots) {
   const container = document.getElementById('admin-slots-list');
   if (!container) return;
+
+  const signature = JSON.stringify(slots);
+  if (signature === lastSlotsRenderSignature && container.children.length > 0) {
+    return;
+  }
+  lastSlotsRenderSignature = signature;
 
   if (!slots || slots.length === 0) {
     container.innerHTML = `
@@ -473,6 +531,12 @@ function renderAdminQueue(list) {
   const container = document.getElementById('admin-waiting-queue-list');
   if (!container) return;
 
+  const signature = JSON.stringify(list);
+  if (signature === lastQueueRenderSignature && container.children.length > 0) {
+    return;
+  }
+  lastQueueRenderSignature = signature;
+
   if (!list || list.length === 0) {
     container.innerHTML = `
       <div class="text-center py-5 text-muted small">
@@ -518,7 +582,7 @@ function renderAdminQueue(list) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 let adminDebounceTimer = null;
-function scheduleAdminRefresh(delay = 300) {
+function scheduleAdminRefresh(delay = 800) {
   if (adminDebounceTimer) clearTimeout(adminDebounceTimer);
   adminDebounceTimer = setTimeout(refreshAllAdminPanels, delay);
 }
@@ -555,7 +619,7 @@ function setupAdminSockets() {
       try {
         const data = JSON.parse(event.data);
         if (['chair-update', 'queue-update', 'slot-update', 'appointment-update'].includes(data.event)) {
-          scheduleAdminRefresh(300);
+          scheduleAdminRefresh(800);
         }
       } catch (e) {
         console.error('Error parsing socket message:', e);
